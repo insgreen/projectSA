@@ -1,14 +1,22 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc } from 'firebase/firestore';
 
+if (typeof process.loadEnvFile === 'function') {
+  try {
+    process.loadEnvFile('.env');
+  } catch (err) {
+    // optional if variables already in process.env
+  }
+}
+
 const firebaseConfig = {
-  apiKey: "AIzaSyAZ_SQ9RO_1LKGbXrpviPO1Qj_cpZFLEus",
-  authDomain: "wu-bus.firebaseapp.com",
-  projectId: "wu-bus",
-  storageBucket: "wu-bus.firebasestorage.app",
-  messagingSenderId: "510784610175",
-  appId: "1:510784610175:web:ff8235bc86850987fa044a",
-  measurementId: "G-1M15B4HELN"
+  apiKey: process.env.VITE_FIREBASE_API_KEY,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || "wu-bus.firebaseapp.com",
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID || "wu-bus",
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || "wu-bus.firebasestorage.app",
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "510784610175",
+  appId: process.env.VITE_FIREBASE_APP_ID || "1:510784610175:web:ff8235bc86850987fa044a",
+  measurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID || "G-1M15B4HELN"
 };
 
 const app = initializeApp(firebaseConfig);
