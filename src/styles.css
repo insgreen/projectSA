@@ -4813,6 +4813,11 @@ th {
   color: var(--warning);
 }
 
+.tag.danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
 /* Complaints Management Responsive Design */
 .complaintStatsGrid {
   display: grid;

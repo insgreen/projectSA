@@ -59,7 +59,7 @@ export default function AdminDashboard({
   const [faqForm, setFaqForm] = useState({ question: '', answer: '', category: 'ทั่วไป' });
   const [scheduleForm, setScheduleForm] = useState({
     id: '', driverId: '600101', driverName: 'สมชาย ดีเยี่ยม', busId: 'WU-101',
-    route: 1, shiftName: 'กะเช้า (Morning Shift)', startTime: '07:00', endTime: '12:00',
+    route: 1, shiftName: 'ช่วงเช้า', startTime: '07:00', endTime: '12:00',
     frequency: 'ทุก 8 นาที', status: 'กำลังปฏิบัติหน้าที่', notes: ''
   });
   const [stopForm, setStopForm] = useState({
@@ -75,6 +75,7 @@ export default function AdminDashboard({
   const [resolutionStatus, setResolutionStatus] = useState('กำลังดำเนินการ');
   const [resolutionNote, setResolutionNote] = useState('');
   const [scoreDeduction, setScoreDeduction] = useState(3);
+  const [driverHistoryModal, setDriverHistoryModal] = useState(null);
 
   // Load initial data
   const loadAllData = () => {
@@ -430,7 +431,7 @@ export default function AdminDashboard({
         driverName: item.driverName || '',
         busId: item.busId || (buses[0]?.id || 'WU-101'),
         route: bus ? bus.route : (item.route || 1),
-        shiftName: item.shiftName || 'กะเช้า',
+        shiftName: item.shiftName || 'ช่วงเช้า',
         startTime: item.startTime || '07:00',
         endTime: item.endTime || '12:00',
         frequency: item.frequency || 'ทุก 8 นาที',
@@ -445,7 +446,7 @@ export default function AdminDashboard({
         driverName: driverList[0]?.name || 'สมชาย ดีเยี่ยม',
         busId: defaultBus?.id || 'WU-101',
         route: defaultBus?.route || 1,
-        shiftName: 'กะเช้า (Morning Shift)',
+        shiftName: 'ช่วงเช้า',
         startTime: '07:00',
         endTime: '12:00',
         frequency: 'ทุก 8 นาที',
@@ -469,25 +470,67 @@ export default function AdminDashboard({
     if (modalMode === 'add') {
       const res = await ScheduleService.add(payload);
       if (res.success) {
-        showToast('เพิ่มข้อมูลตารางเดินรถสำเร็จ');
+        const isServing = payload.status === 'กำลังปฏิบัติหน้าที่' || payload.status === 'กำลังให้บริการ';
+        const newBusStatus = isServing ? 'กำลังให้บริการ' : (payload.status === 'เสร็จสิ้นงาน' ? 'เสร็จสิ้นรอบวิ่ง' : 'ยังไม่ถึงเวลางาน');
+        await BusService.update(payload.busId, {
+          status: newBusStatus,
+          driverName: payload.driverName,
+          route: Number(payload.route),
+          shiftName: payload.shiftName
+        });
         setScheduleList(ScheduleService.getAll());
+        setBuses(BusService.getAll());
+        showToast(`เพิ่มข้อมูลตารางเดินรถและซิงก์สถานะรถ ${payload.busId} เรียบร้อยแล้ว (Firebase Sync)`);
         setActiveModal(null);
       }
     } else {
       const res = await ScheduleService.update(editingItem.id, payload);
       if (res.success) {
-        showToast('แก้ไขข้อมูลตารางเดินรถเรียบร้อยแล้ว');
+        const isServing = payload.status === 'กำลังปฏิบัติหน้าที่' || payload.status === 'กำลังให้บริการ';
+        const newBusStatus = isServing ? 'กำลังให้บริการ' : (payload.status === 'เสร็จสิ้นงาน' ? 'เสร็จสิ้นรอบวิ่ง' : 'ยังไม่ถึงเวลางาน');
+        await BusService.update(payload.busId, {
+          status: newBusStatus,
+          driverName: payload.driverName,
+          route: Number(payload.route),
+          shiftName: payload.shiftName
+        });
         setScheduleList(ScheduleService.getAll());
+        setBuses(BusService.getAll());
+        showToast(`แก้ไขข้อมูลตารางเดินรถและซิงก์สถานะรถ ${payload.busId} เรียบร้อยแล้ว (Firebase Sync)`);
         setActiveModal(null);
       }
     }
   };
 
+  const handleQuickChangeScheduleStatus = async (sch, newStatus) => {
+    const res = await ScheduleService.update(sch.id, { status: newStatus });
+    if (res.success) {
+      const isServing = newStatus === 'กำลังปฏิบัติหน้าที่' || newStatus === 'กำลังให้บริการ';
+      const newBusStatus = isServing ? 'กำลังให้บริการ' : (newStatus === 'เสร็จสิ้นงาน' ? 'เสร็จสิ้นรอบวิ่ง' : 'ยังไม่ถึงเวลางาน');
+      await BusService.update(sch.busId, {
+        status: newBusStatus,
+        driverName: sch.driverName,
+        route: Number(sch.route),
+        shiftName: sch.shiftName
+      });
+      setScheduleList(ScheduleService.getAll());
+      setBuses(BusService.getAll());
+      showToast(`อัปเดตสถานะตารางและปรับสถานะรถ ${sch.busId} เป็น "${newBusStatus}" แล้ว (Firebase Sync)`);
+    }
+  };
+
   const handleDeleteSchedule = async (id) => {
+    const target = scheduleList.find((s) => s.id === id);
     if (window.confirm(`ยืนยันการลบตารางเดินรถรหัส ${id}?`)) {
       await ScheduleService.delete(id);
+      if (target && target.busId) {
+        await BusService.update(target.busId, {
+          status: 'พร้อมให้บริการ'
+        });
+        setBuses(BusService.getAll());
+      }
       setScheduleList(ScheduleService.getAll());
-      showToast('ลบข้อมูลตารางเดินรถเรียบร้อยแล้ว');
+      showToast('ลบข้อมูลตารางเดินรถและปรับสถานะรถเรียบร้อยแล้ว (Firebase Sync)');
     }
   };
 
@@ -557,14 +600,14 @@ export default function AdminDashboard({
   // ======================================================================
   const handleOpenInspectionModal = (bus) => {
     setInspectingBus(bus);
+    const existing = bus?.readiness?.checklist;
     setInspectionChecklist({
-      tires: true,
-      brakes: true,
-      lights: true,
-      gps: true,
-      seatSensors: true,
-      doors: true,
-      aircon: true
+      tires: existing?.tires !== undefined ? existing.tires : true,
+      brakes: existing?.brakes !== undefined ? existing.brakes : true,
+      lights: existing?.lights !== undefined ? existing.lights : true,
+      gps: existing?.gps !== undefined ? existing.gps : true,
+      seatSensors: existing?.seatSensors !== undefined ? existing.seatSensors : true,
+      doors: existing?.doors !== undefined ? existing.doors : true
     });
     setActiveModal('inspection');
   };
@@ -643,7 +686,7 @@ export default function AdminDashboard({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                   <h3 style={{ margin: 0 }}>สถานะรถมันม่วง</h3>
                   <span style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 600 }}>
-                    ความจุมาตรฐาน: 20 ที่นั่ง
+                    ความจุ: 20 ที่นั่ง
                   </span>
                 </div>
                 <div className="tableResponsive">
@@ -653,32 +696,66 @@ export default function AdminDashboard({
                         <th style={{ whiteSpace: 'nowrap' }}>ป้ายทะเบียนรถ</th>
                         <th style={{ whiteSpace: 'nowrap' }}>สายรถ</th>
                         <th style={{ whiteSpace: 'nowrap' }}>พนักงานขับรถ</th>
+                        <th style={{ whiteSpace: 'nowrap' }}>ช่วงการเดินรถ</th>
                         <th style={{ whiteSpace: 'nowrap' }}>ผู้โดยสาร</th>
                         <th style={{ whiteSpace: 'nowrap' }}>ความเร็ว</th>
                         <th style={{ whiteSpace: 'nowrap' }}>สถานะการเดินรถ</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {buses.map((b) => (
-                        <tr key={b.id}>
-                          <td style={{ whiteSpace: 'nowrap' }}><strong>{b.id}</strong></td>
-                          <td style={{ whiteSpace: 'nowrap' }}>
-                            <span className="routeMiniTag" style={{ background: ROUTES.find((r) => r.id === b.route)?.color, whiteSpace: 'nowrap' }}>
-                              สาย {b.route}
-                            </span>
-                          </td>
-                          <td style={{ whiteSpace: 'nowrap' }}>{b.driverName || 'สมชาย ดีเยี่ยม'}</td>
-                          <td style={{ whiteSpace: 'nowrap' }}>
-                            {Math.min(20, b.passengers || 0)}/20 ที่นั่ง
-                          </td>
-                          <td style={{ whiteSpace: 'nowrap' }}>{b.speed || 0} km/h</td>
-                          <td style={{ whiteSpace: 'nowrap' }}>
-                            <span className={`tag ${b.passengers >= 20 ? 'warn' : 'ok'}`} style={{ whiteSpace: 'nowrap' }}>
-                              {b.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {buses.map((b) => {
+                        const sch = scheduleList.find((s) => s.busId === b.id);
+                        const effectiveStatus = (b.status === 'ซ่อมบำรุง')
+                          ? 'ซ่อมบำรุง'
+                          : (sch?.status === 'ยังไม่ถึงเวลางาน'
+                              ? 'ยังไม่ถึงเวลางาน'
+                              : (sch?.status === 'เสร็จสิ้นงาน'
+                                  ? 'เสร็จสิ้นรอบวิ่ง'
+                                  : (b.status === 'ที่นั่งเต็ม' || b.passengers >= 20 ? 'ที่นั่งเต็ม' : (b.status || 'กำลังให้บริการ'))));
+
+                        const isNotServing = effectiveStatus === 'ยังไม่ถึงเวลางาน' || effectiveStatus === 'เสร็จสิ้นรอบวิ่ง' || effectiveStatus === 'ซ่อมบำรุง';
+                        const displayPassengers = isNotServing ? '0/20 ที่นั่ง' : `${Math.min(20, b.passengers || 0)}/20 ที่นั่ง`;
+                        const displaySpeed = isNotServing ? '0 km/h' : `${b.speed || 0} km/h`;
+
+                        const statusClass = effectiveStatus === 'ที่นั่งเต็ม'
+                          ? 'warn'
+                          : effectiveStatus === 'กำลังให้บริการ'
+                          ? 'ok'
+                          : effectiveStatus === 'ซ่อมบำรุง'
+                          ? 'danger'
+                          : 'info';
+
+                        const effectiveRoute = sch?.route || b.route || 1;
+
+                        return (
+                          <tr key={b.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}><strong>{b.id}</strong></td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <span className="routeMiniTag" style={{ background: ROUTES.find((r) => r.id === effectiveRoute)?.color, whiteSpace: 'nowrap' }}>
+                                สาย {effectiveRoute}
+                              </span>
+                            </td>
+                            <td style={{ whiteSpace: 'nowrap' }}>{sch?.driverName || b.driverName || 'สมชาย ดีเยี่ยม'}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {sch ? (
+                                <div>
+                                  <div style={{ fontWeight: 700, color: 'var(--text)' }}>{sch.shiftName}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{sch.startTime} - {sch.endTime} น.</div>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--muted)', fontSize: '12px' }}>ยังไม่ได้กำหนด</span>
+                              )}
+                            </td>
+                            <td style={{ whiteSpace: 'nowrap' }}>{displayPassengers}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>{displaySpeed}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <span className={`tag ${statusClass}`} style={{ whiteSpace: 'nowrap' }}>
+                                {effectiveStatus}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -742,6 +819,11 @@ export default function AdminDashboard({
                           </span>
                         </td>
                         <td style={{ whiteSpace: 'nowrap' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+                            {u.faculty || u.department || u.major || 'ประชาชนทั่วไป'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                           {u.suspended ? (
                             <span className="tag warn" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--danger)', fontWeight: 700 }}>
                               <Ban size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: '4px' }} />
@@ -751,13 +833,13 @@ export default function AdminDashboard({
                             <span className="tag ok">{u.status || 'ปกติ'}</span>
                           )}
                         </td>
-                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                           {u.userType !== 'admin' && (
                             u.suspended ? (
                               <button
                                 onClick={() => handleUnsuspendUser(u.id, u.name)}
                                 className="secondaryBtn"
-                                style={{ padding: '4px 10px', fontSize: '11px', borderColor: '#22a447', color: '#22a447', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
+                                style={{ padding: '4px 10px', fontSize: '11px', borderColor: '#22a447', color: '#22a447', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', marginRight: '6px' }}
                                 title="ปลดระงับบัญชีผู้ใช้งาน"
                               >
                                 <UserCheck size={13} /> ปลดระงับ
@@ -766,15 +848,13 @@ export default function AdminDashboard({
                               <button
                                 onClick={() => handleSuspendUser(u.id, u.name)}
                                 className="secondaryBtn"
-                                style={{ padding: '4px 10px', fontSize: '11px', borderColor: 'var(--danger)', color: 'var(--danger)', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
+                                style={{ padding: '4px 10px', fontSize: '11px', borderColor: 'var(--danger)', color: 'var(--danger)', display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', marginRight: '6px' }}
                                 title="ระงับบัญชีผู้ใช้งาน"
                               >
                                 <Ban size={13} /> ระงับบัญชี
                               </button>
                             )
                           )}
-                        </td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                           <button
                             onClick={() => handleOpenUserModal('edit', u)}
                             style={{ background: 'none', border: 'none', color: 'var(--wu-purple-light)', cursor: 'pointer', padding: '6px' }}
@@ -856,16 +936,37 @@ export default function AdminDashboard({
                             const currentScore = Math.max(0, 100 - totalDeduction);
                             return (
                               <div style={{ whiteSpace: 'nowrap' }}>
-                                <span style={{
-                                  fontWeight: 800,
-                                  color: currentScore >= 80 ? 'var(--success)' : 'var(--danger)'
-                                }}>
-                                  {currentScore} / 100
-                                </span>
-                                {totalDeduction > 0 && (
-                                  <div style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: 600, marginTop: '2px', whiteSpace: 'nowrap' }}>
-                                    (ร้องเรียน {driverReports.length} เรื่อง -{totalDeduction})
-                                  </div>
+                                <div>
+                                  <span style={{
+                                    fontWeight: 800,
+                                    color: currentScore >= 80 ? 'var(--success)' : 'var(--danger)'
+                                  }}>
+                                    {currentScore} / 100
+                                  </span>
+                                </div>
+                                {driverReports.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDriverHistoryModal({ driver: d, reports: driverReports, totalDeduction })}
+                                    style={{
+                                      marginTop: '4px',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      color: 'var(--danger)',
+                                      background: 'rgba(239, 68, 68, 0.08)',
+                                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                                      borderRadius: '6px',
+                                      padding: '3px 8px',
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap',
+                                      transition: 'all 0.2s'
+                                    }}
+                                  >
+                                    <FileText size={12} /> ดูประวัติการถูกร้องเรียน ({driverReports.length})
+                                  </button>
                                 )}
                               </div>
                             );
@@ -923,29 +1024,72 @@ export default function AdminDashboard({
                     <tr>
                       <th style={{ whiteSpace: 'nowrap' }}>ป้ายทะเบียนรถ</th>
                       <th style={{ whiteSpace: 'nowrap' }}>สายที่วิ่ง</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>ช่วงการเดินรถ</th>
                       <th style={{ whiteSpace: 'nowrap' }}>ความจุสูงสุด</th>
                       <th style={{ whiteSpace: 'nowrap' }}>สถานะ</th>
                       <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>การจัดการ</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {buses.map((b) => (
-                      <tr key={b.id}>
-                        <td style={{ whiteSpace: 'nowrap' }}><strong>{b.id}</strong></td>
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          <span className="routeMiniTag" style={{ background: ROUTES.find((r) => r.id === b.route)?.color }}>
-                            สาย {b.route}
-                          </span>
-                        </td>
-                        <td style={{ whiteSpace: 'nowrap' }}>20 ที่นั่ง</td>
-                        <td>
-                          <span className="tag ok">{b.status}</span>
-                          {b.readiness?.isReady && (
-                            <span style={{ display: 'block', fontSize: '10px', color: '#22a447', marginTop: '2px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                              ตรวจความพร้อมแล้ว
+                    {buses.map((b) => {
+                      const sch = scheduleList.find((s) => s.busId === b.id);
+                      const effectiveStatus = (b.status === 'ซ่อมบำรุง')
+                        ? 'ซ่อมบำรุง'
+                        : (sch?.status === 'ยังไม่ถึงเวลางาน'
+                            ? 'ยังไม่ถึงเวลางาน'
+                            : (sch?.status === 'เสร็จสิ้นงาน'
+                                ? 'เสร็จสิ้นรอบวิ่ง'
+                                : (b.status === 'ที่นั่งเต็ม' || b.passengers >= 20 ? 'ที่นั่งเต็ม' : (b.status || 'กำลังให้บริการ'))));
+
+                      const statusTagClass = effectiveStatus === 'กำลังให้บริการ'
+                        ? 'ok'
+                        : effectiveStatus === 'ซ่อมบำรุง'
+                        ? 'danger'
+                        : effectiveStatus === 'ยังไม่ถึงเวลางาน'
+                        ? 'info'
+                        : effectiveStatus === 'เสร็จสิ้นรอบวิ่ง'
+                        ? 'secondary'
+                        : 'warn';
+
+                      const effectiveRoute = sch?.route || b.route || 1;
+                      const effectiveDriver = sch?.driverName || b.driverName;
+
+                      return (
+                        <tr key={b.id}>
+                          <td style={{ whiteSpace: 'nowrap' }}><strong>{b.id}</strong></td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <span className="routeMiniTag" style={{ background: ROUTES.find((r) => r.id === effectiveRoute)?.color }}>
+                              สาย {effectiveRoute}
                             </span>
-                          )}
-                        </td>
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {sch ? (
+                              <div>
+                                <span style={{ fontWeight: 700, color: 'var(--text)' }}>{sch.shiftName}</span>
+                                <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                                  {sch.startTime} - {sch.endTime} น.
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: '12px', color: 'var(--muted)' }}>ยังไม่ได้กำหนด</span>
+                            )}
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>20 ที่นั่ง</td>
+                          <td>
+                            <span className={`tag ${statusTagClass}`}>
+                              {effectiveStatus}
+                            </span>
+                            {effectiveDriver && (
+                              <span style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px', whiteSpace: 'nowrap' }}>
+                                คนขับ: {effectiveDriver}
+                              </span>
+                            )}
+                            {b.readiness?.isReady && (
+                              <span style={{ display: 'block', fontSize: '10px', color: '#22a447', marginTop: '2px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                ตรวจความพร้อมแล้ว
+                              </span>
+                            )}
+                          </td>
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                           <button
                             onClick={() => handleOpenInspectionModal(b)}
@@ -971,7 +1115,8 @@ export default function AdminDashboard({
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    );
+                  })}
                   </tbody>
                 </table>
               </div>
@@ -1003,38 +1148,59 @@ export default function AdminDashboard({
                 <table>
                   <thead>
                     <tr>
-                      <th>รหัสตาราง</th>
-                      <th>กะการเดินรถ</th>
-                      <th>สายรถ</th>
-                      <th>รถประจำการ</th>
-                      <th>พนักงานขับรถ</th>
-                      <th>ช่วงเวลาเดินรถ</th>
-                      <th>สถานะ</th>
-                      <th style={{ textAlign: 'right' }}>การจัดการ</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>รหัสตาราง</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>ช่วงการเดินรถ</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>สายรถ</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>รถประจำการ</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>พนักงานขับรถ</th>
+                      <th style={{ whiteSpace: 'nowrap', minWidth: '130px' }}>เวลาเดินรถ</th>
+                      <th style={{ whiteSpace: 'nowrap' }}>สถานะ</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>การจัดการ</th>
                     </tr>
                   </thead>
                   <tbody>
                     {scheduleList.map((sch) => (
                       <tr key={sch.id}>
-                        <td><strong>{sch.id}</strong></td>
-                        <td>
+                        <td style={{ whiteSpace: 'nowrap' }}><strong>{sch.id}</strong></td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
                           <div style={{ fontWeight: 700 }}>{sch.shiftName}</div>
                           {sch.notes && <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{sch.notes}</div>}
                         </td>
-                        <td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
                           <span className="routeMiniTag" style={{ background: ROUTES.find((r) => r.id === sch.route)?.color }}>
                             สาย {sch.route}
                           </span>
                         </td>
-                        <td><strong>{sch.busId}</strong></td>
-                        <td>{sch.driverName}</td>
-                        <td>
+                        <td style={{ whiteSpace: 'nowrap' }}><strong>{sch.busId}</strong></td>
+                        <td style={{ whiteSpace: 'nowrap' }}>{sch.driverName}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
                           <span style={{ fontWeight: 600 }}>{sch.startTime} - {sch.endTime} น.</span>
                         </td>
-                        <td>
-                          <span className={`tag ${sch.status === 'กำลังปฏิบัติหน้าที่' ? 'ok' : 'info'}`}>
-                            {sch.status}
-                          </span>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <select
+                            value={sch.status}
+                            onChange={(e) => handleQuickChangeScheduleStatus(sch, e.target.value)}
+                            style={{
+                              padding: '5px 8px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border: sch.status === 'กำลังปฏิบัติหน้าที่'
+                                ? '1px solid rgba(16, 185, 129, 0.4)'
+                                : '1px solid var(--border)',
+                              background: sch.status === 'กำลังปฏิบัติหน้าที่'
+                                ? 'rgba(16, 185, 129, 0.12)'
+                                : 'var(--card)',
+                              color: sch.status === 'กำลังปฏิบัติหน้าที่'
+                                ? 'var(--success)'
+                                : 'var(--text)'
+                            }}
+                          >
+                            <option value="กำลังปฏิบัติหน้าที่">กำลังปฏิบัติหน้าที่</option>
+                            <option value="ยังไม่ถึงเวลางาน">ยังไม่ถึงเวลางาน</option>
+                            <option value="เสร็จสิ้นงาน">เสร็จสิ้นงาน</option>
+                          </select>
                         </td>
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                           <button
@@ -1263,7 +1429,7 @@ export default function AdminDashboard({
                         <tr>
                           <th style={{ width: '75px', whiteSpace: 'nowrap' }}>รหัสเรื่อง</th>
                           <th style={{ minWidth: '120px' }}>ผู้ร้องเรียน</th>
-                          <th style={{ width: '75px', whiteSpace: 'nowrap', textAlign: 'center' }}>รถเป้าหมาย</th>
+                          <th style={{ width: '75px', whiteSpace: 'nowrap', textAlign: 'center' }}>เป้าหมาย</th>
                           <th style={{ width: '85px', whiteSpace: 'nowrap', textAlign: 'center' }}>หมวดหมู่</th>
                           <th style={{ width: '115px', whiteSpace: 'nowrap' }}>เวลาที่แจ้ง</th>
                           <th style={{ minWidth: '130px' }}>รายละเอียด</th>
@@ -1868,12 +2034,12 @@ export default function AdminDashboard({
             </div>
             <form onSubmit={handleSaveSchedule} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <label className="fieldLabel">
-                <span>ชื่อกะการเดินรถ (Shift Name)</span>
+                <span>ชื่อช่วงการเดินรถ</span>
                 <input
                   type="text"
                   value={scheduleForm.shiftName}
                   onChange={(e) => setScheduleForm({ ...scheduleForm, shiftName: e.target.value })}
-                  placeholder="เช่น กะเช้า (Morning Shift)"
+                  placeholder="เช่น ช่วงเช้า, ช่วงบ่าย, ช่วงเต็มวัน"
                   required
                   style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
                 />
@@ -1885,10 +2051,13 @@ export default function AdminDashboard({
                   value={scheduleForm.busId}
                   onChange={(e) => {
                     const selBus = buses.find((b) => b.id === e.target.value);
+                    const matchingDriver = driverList.find((d) => d.busId === e.target.value);
                     setScheduleForm({
                       ...scheduleForm,
                       busId: e.target.value,
-                      route: selBus ? selBus.route : scheduleForm.route
+                      route: selBus ? selBus.route : scheduleForm.route,
+                      driverId: matchingDriver ? matchingDriver.id : scheduleForm.driverId,
+                      driverName: matchingDriver ? matchingDriver.name : (selBus?.driverName || scheduleForm.driverName)
                     });
                   }}
                   style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
@@ -1908,7 +2077,9 @@ export default function AdminDashboard({
                     setScheduleForm({
                       ...scheduleForm,
                       driverId: e.target.value,
-                      driverName: drv ? drv.name : scheduleForm.driverName
+                      driverName: drv ? drv.name : scheduleForm.driverName,
+                      busId: drv?.busId || scheduleForm.busId,
+                      route: drv?.route || scheduleForm.route
                     });
                   }}
                   style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
@@ -2039,41 +2210,292 @@ export default function AdminDashboard({
       ================================================================== */}
       {activeModal === 'inspection' && inspectingBus && (
         <div className="modalOverlay" onClick={() => setActiveModal(null)}>
-          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px', width: '90%' }}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px', width: '92%' }}>
             <div className="modalHeader" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ margin: 0 }}>ตรวจสอบความพร้อมรถ {inspectingBus.id}</h3>
-                <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Pre-trip Safety & IoT Readiness Inspection</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckSquare size={20} color="var(--wu-purple-light)" />
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>
+                  ตรวจความพร้อมรถ ({inspectingBus.id})
+                </h3>
               </div>
               <button onClick={() => setActiveModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
             </div>
-            <form onSubmit={handleSaveInspection} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--bg)', padding: '14px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+
+            <form onSubmit={handleSaveInspection} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                <p style={{ margin: '0 0 2px', fontSize: '13px', color: 'var(--muted)', fontWeight: 600, textAlign: 'left' }}>
+                  ตรวจสอบรายการความปลอดภัย
+                </p>
+                {inspectingBus.readiness?.isReady && (
+                  <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>
+                    ตรวจแล้วโดย: {inspectingBus.readiness.inspector || 'พนักงานขับรถ'}
+                  </span>
+                )}
+              </div>
+
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                background: 'var(--bg)',
+                padding: '12px 14px',
+                borderRadius: '16px',
+                border: '1px solid var(--border)'
+              }}>
                 {[
-                  { key: 'tires', label: 'แรงดันลมยางและสภาพล้อรถทั้ง 4 ล้อ' },
-                  { key: 'brakes', label: 'ระบบเบรกและน้ำมันเบรก' },
-                  { key: 'lights', label: 'ไฟส่องสว่าง ไฟเลี้ยว และไฟหน้า-ท้าย' },
-                  { key: 'gps', label: 'สัญญาณดาวเทียม GPS Tracker (ความแม่นยำสูง)' },
-                  { key: 'seatSensors', label: 'เซนเซอร์ตรวจจับที่นั่งอัจฉริยะ (Smart Seat Matrix 20 จุด)' },
-                  { key: 'doors', label: 'ระบบเปิด-ปิดและเซนเซอร์ความปลอดภัยประตูรถ' },
-                  { key: 'aircon', label: 'ระบบปรับอากาศและความสะอาดห้องโดยสาร' }
+                  { key: 'tires', label: 'แรงดันลมยางและสภาพล้อรถ' },
+                  { key: 'brakes', label: 'ระบบเบรกและเบรกมือ' },
+                  { key: 'lights', label: 'ไฟหน้า ไฟท้าย ไฟเลี้ยว และไฟฉุกเฉิน' },
+                  { key: 'gps', label: 'กล่องสัญญาณ GPS Tracker บนตัวรถ' },
+                  { key: 'seatSensors', label: 'ระบบเซนเซอร์ตรวจจับที่นั่ง 20 จุด' },
+                  { key: 'doors', label: 'ระบบเปิด-ปิดและเซนเซอร์ประตูผู้โดยสาร' }
                 ].map((item) => (
-                  <label key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', cursor: 'pointer' }}>
+                  <label
+                    key={item.key}
+                    className="inspectionCheckItem"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'flex-start',
+                      textAlign: 'left',
+                      gap: '12px',
+                      padding: '8px 10px',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      margin: 0,
+                      userSelect: 'none'
+                    }}
+                  >
                     <input
                       type="checkbox"
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        accentColor: 'var(--wu-purple-light)',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        margin: 0
+                      }}
                       checked={inspectionChecklist[item.key] || false}
                       onChange={(e) => setInspectionChecklist({ ...inspectionChecklist, [item.key]: e.target.checked })}
                     />
-                    <span>{item.label}</span>
+                    <span style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text)', textAlign: 'left', flex: 1, lineHeight: 1.4 }}>
+                      {item.label}
+                    </span>
                   </label>
                 ))}
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-                <button type="button" onClick={() => setActiveModal(null)} className="secondaryBtn" style={{ flex: 1 }}>ยกเลิก</button>
-                <button type="submit" className="primaryBtn" style={{ flex: 1 }}>ยืนยันความพร้อมและปล่อยรถ</button>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '12px',
+                marginTop: '10px'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  style={{
+                    width: '100%',
+                    minHeight: '46px',
+                    border: '1.5px solid var(--border)',
+                    background: 'var(--card)',
+                    color: 'var(--text)',
+                    borderRadius: '14px',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    transition: 'all 0.2s ease',
+                    margin: 0,
+                    padding: '10px 16px'
+                  }}
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    width: '100%',
+                    minHeight: '46px',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, var(--wu-purple-light), var(--wu-purple))',
+                    color: '#ffffff',
+                    borderRadius: '14px',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    boxShadow: '0 4px 14px rgba(106, 27, 154, 0.3)',
+                    margin: 0,
+                    padding: '10px 16px'
+                  }}
+                >
+                  ยืนยันความพร้อมและปล่อยรถ
+                </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================
+          MODAL: DRIVER COMPLAINT HISTORY (ประวัติการถูกร้องเรียนของพนักงาน)
+      ================================================================== */}
+      {driverHistoryModal && (
+        <div className="modalOverlay" onClick={() => setDriverHistoryModal(null)}>
+          <div
+            className="modalCard"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: '560px',
+              width: '92%',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            <div
+              className="modalHeader"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '14px',
+                borderBottom: '1px solid var(--border)',
+                paddingBottom: '12px'
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: '17px', color: 'var(--text)' }}>
+                  ประวัติการถูกร้องเรียน
+                </h3>
+                <div style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '3px' }}>
+                  พนักงาน: <strong>{driverHistoryModal.driver.name}</strong> (รหัส: {driverHistoryModal.driver.id})
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDriverHistoryModal(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px' }}
+                title="ปิด"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                padding: '10px 14px',
+                borderRadius: '10px',
+                flexWrap: 'wrap',
+                gap: '8px'
+              }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  จำนวนเรื่องร้องเรียน: {driverHistoryModal.reports.length} รายการ
+                </span>
+                <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--danger)' }}>
+                  ถูกหักคะแนนสะสม: -{driverHistoryModal.totalDeduction} คะแนน
+                </span>
+              </div>
+
+              {driverHistoryModal.reports.length > 0 ? (
+                driverHistoryModal.reports.map((rep) => {
+                  const isPending = !rep.status || rep.status === 'รอตรวจสอบ';
+                  return (
+                    <div
+                      key={rep.id}
+                      style={{
+                        border: '1px solid var(--border)',
+                        borderRadius: '10px',
+                        padding: '12px 14px',
+                        background: 'var(--bg)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <strong style={{ fontSize: '13px', color: 'var(--wu-purple-light)' }}>{rep.id}</strong>
+                          <span style={{
+                            background: 'var(--card)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '6px',
+                            padding: '2px 8px',
+                            fontSize: '11px',
+                            fontWeight: 700
+                          }}>
+                            {rep.category || 'ข้อร้องเรียนทั่วไป'}
+                          </span>
+                          {rep.busId && (
+                            <span className="routeMiniTag" style={{ background: '#5c068c', fontSize: '11px' }}>
+                              {rep.busId}
+                            </span>
+                          )}
+                        </div>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '99px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          background: !isPending ? 'var(--success-bg)' : 'var(--warning-bg)',
+                          color: !isPending ? 'var(--success)' : 'var(--warning)'
+                        }}>
+                          {isPending ? 'รอตรวจสอบ' : (rep.status || 'ดำเนินการเรียบร้อยแล้ว')}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5, margin: '6px 0' }}>
+                        {rep.details || 'ไม่มีรายละเอียดเพิ่มเติม'}
+                      </div>
+
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: '11.5px',
+                        color: 'var(--muted)',
+                        marginTop: '8px',
+                        borderTop: '1px dashed var(--border)',
+                        paddingTop: '6px',
+                        flexWrap: 'wrap',
+                        gap: '6px'
+                      }}>
+                        <span>ผู้แจ้ง: {rep.userName || 'ผู้โดยสาร'} ({rep.userDept || 'มวล.'})</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <Clock3 size={12} /> {rep.timestamp || 'เมื่อสักครู่'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--muted)', fontSize: '13px' }}>
+                  ไม่พบรายการข้อร้องเรียนสำหรับพนักงานท่านนี้
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+              <button
+                type="button"
+                onClick={() => setDriverHistoryModal(null)}
+                className="secondaryBtn"
+                style={{ minWidth: '100px' }}
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
           </div>
         </div>
       )}

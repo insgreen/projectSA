@@ -196,7 +196,7 @@ export default function NotificationsPage({ setActive, onGoBack, userInfo }) {
                   </div>
                   <div style={{ flex: 1 }}>
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.4 }}>
-                      {item.title}
+                      {item.title ? item.title.replace(/\(รถ\s+/g, '(') : ''}
                     </h3>
                     <p style={{ margin: '6px 0 0', fontSize: '14px', color: 'var(--text)', opacity: 0.88, lineHeight: 1.6 }}>
                       {item.description}
@@ -217,7 +217,7 @@ export default function NotificationsPage({ setActive, onGoBack, userInfo }) {
                 }}>
                   <div style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 600 }}>
                     {item.location && <span>สถานที่: {item.location}</span>}
-                    {item.target && <span style={{ marginLeft: item.location ? '12px' : 0 }}>เป้าหมาย: {item.target}</span>}
+                    {item.target && <span style={{ marginLeft: item.location ? '12px' : 0 }}>เป้าหมาย: {item.target ? item.target.replace(/^รถ\s+/, '') : ''}</span>}
                   </div>
 
                   <button

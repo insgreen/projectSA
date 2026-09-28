@@ -6,7 +6,7 @@ import PassengerDashboard from './components/PassengerDashboard';
 import DriverDashboard from './components/DriverDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import { ROUTES, INITIAL_BUSES, INITIAL_REPORTS, MOCK_DRIVERS } from './data/routesData';
-import { BusService, ReportService, WaitingService } from './data/dataStore.js';
+import { BusService, ReportService, WaitingService, ScheduleService } from './data/dataStore.js';
 import { db } from "./firebase";
 
 export default function App() {
@@ -34,7 +34,7 @@ export default function App() {
     setUserWaitingStop(found || null);
   }, [userInfo, waitingStops]);
 
-  // Real-time Firestore Subscriptions for buses, reports, and waiting stops
+  // Real-time Firestore Subscriptions for buses, reports, schedules, and waiting stops
   useEffect(() => {
     const unsubBuses = BusService.subscribeBuses((liveBuses) => {
       if (liveBuses && liveBuses.length > 0) {
@@ -54,10 +54,15 @@ export default function App() {
       }
     });
 
+    const unsubSchedules = ScheduleService.subscribeSchedules(() => {
+      setBuses(BusService.getAll());
+    });
+
     return () => {
       unsubBuses();
       unsubReports();
       unsubWaiting();
+      unsubSchedules();
     };
   }, []);
 
@@ -135,8 +140,46 @@ export default function App() {
     const interval = setInterval(() => {
       setLastUpdateSec((s) => (s + 3) % 60);
 
+      const allSchedules = ScheduleService.getAll();
       setBuses((prevBuses) =>
         prevBuses.map((bus) => {
+          const busSchedule = allSchedules.find((s) => s.busId === bus.id);
+
+          if (bus.status === 'ซ่อมบำรุง') {
+            return {
+              ...bus,
+              speed: 0,
+              passengers: 0,
+              seated: 0,
+              standing: 0,
+              status: 'ซ่อมบำรุง'
+            };
+          }
+
+          if (busSchedule && busSchedule.status === 'ยังไม่ถึงเวลางาน') {
+            return {
+              ...bus,
+              speed: 0,
+              passengers: 0,
+              seated: 0,
+              standing: 0,
+              status: 'ยังไม่ถึงเวลางาน',
+              shiftName: busSchedule.shiftName
+            };
+          }
+
+          if (busSchedule && busSchedule.status === 'เสร็จสิ้นงาน') {
+            return {
+              ...bus,
+              speed: 0,
+              passengers: 0,
+              seated: 0,
+              standing: 0,
+              status: 'เสร็จสิ้นรอบวิ่ง',
+              shiftName: busSchedule.shiftName
+            };
+          }
+
           const route = ROUTES.find((r) => r.id === bus.route);
           if (!route || !route.polyline || route.polyline.length === 0) return bus;
 
@@ -175,6 +218,7 @@ export default function App() {
             seated: seatedCount,
             standing: 0,
             status: busStatus,
+            shiftName: busSchedule?.shiftName || bus.shiftName,
             seats: newSeats
           };
         })

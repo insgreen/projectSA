@@ -482,11 +482,6 @@ export default function Shell({
                             {rep.details || rep.description}
                           </p>
                         )}
-                        {rep.adminNote && (
-                          <div style={{ fontSize: '11.5px', color: 'var(--wu-purple-light)', background: 'rgba(124, 58, 237, 0.08)', padding: '6px 10px', borderRadius: '8px' }}>
-                            <strong>ข้อความจากผู้ดูแลระบบ: </strong>{rep.adminNote}
-                          </div>
-                        )}
                       </div>
                     );
                   })
@@ -587,13 +582,13 @@ export default function Shell({
                               {isAnn && <Bell size={18} color="var(--wu-purple-light)" />}
                             </div>
                             <div style={{ flex: 1 }}>
-                              <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.4 }}>{n.title}</h4>
+                              <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.4 }}>{n.title ? n.title.replace(/\(รถ\s+/g, '(') : ''}</h4>
                               <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text)', opacity: 0.85, lineHeight: 1.5 }}>{n.description}</p>
                             </div>
                           </div>
                           {(n.location || n.target) && (
                             <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600, borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
-                              {n.target && <span style={{ marginLeft: '10px' }}>รถมันม่วงป้ายทะเบียน: {n.target}</span>}
+                              {n.target && <span style={{ marginLeft: '10px' }}>รถมันม่วงป้ายทะเบียน: {n.target ? n.target.replace(/^รถ\s+/, '') : ''}</span>}
                             </div>
                           )}
                           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2px' }}>

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import LeafletMapComponent from './LeafletMapComponent';
 import { ROUTES, INITIAL_BUSES, CAMPUS_BUILDINGS } from '../data/routesData';
+import { ScheduleService } from '../data/dataStore';
 
 const DEFAULT_CAMPUS_STOP = { id: '1-1', name: 'อาคารกิจกรรม', lat: 8.6474, lng: 99.8937 };
 
@@ -52,9 +53,19 @@ export default function MapPage({
 
   // Real-time Dynamic ETA calculation between bus progress and stop polyline
   const calculateBusEtaToStop = (bus, stop) => {
+    const isNotServing = bus.status === 'ยังไม่ถึงเวลางาน' || bus.status === 'เสร็จสิ้นรอบวิ่ง' || bus.status === 'ซ่อมบำรุง';
+    if (isNotServing) {
+      return {
+        etaMinutes: 9999,
+        remainingStops: 0,
+        label: bus.status,
+        isNotServing: true
+      };
+    }
+
     const route = ROUTES.find((r) => r.id === bus.route);
     if (!route || !route.polyline || route.polyline.length === 0 || !route.stops) {
-      return { etaMinutes: bus.eta || 5, remainingStops: 1, label: `${bus.eta || 5} นาที` };
+      return { etaMinutes: bus.eta || 5, remainingStops: 1, label: `${bus.eta || 5} นาที`, isNotServing: false };
     }
 
     let minStopDist = Infinity;
@@ -73,7 +84,7 @@ export default function MapPage({
 
     let etaMinutes = Math.max(1, Math.round(steps * 0.35));
     if (steps === 0) {
-      return { etaMinutes: 0, remainingStops: 0, label: 'กำลังจะถึง' };
+      return { etaMinutes: 0, remainingStops: 0, label: 'กำลังจะถึง', isNotServing: false };
     }
 
     let stopIdx = route.stops.findIndex((s) => s.id === stop.id || s.name === stop.name);
@@ -95,7 +106,8 @@ export default function MapPage({
     return {
       etaMinutes,
       remainingStops,
-      label: etaMinutes <= 1 ? 'กำลังจะถึง' : `อีก ${etaMinutes} นาที`
+      label: etaMinutes <= 1 ? 'กำลังจะถึง' : `อีก ${etaMinutes} นาที`,
+      isNotServing: false
     };
   };
 
@@ -111,6 +123,14 @@ export default function MapPage({
     return list;
   }, []);
 
+  const allSchedules = useMemo(() => {
+    try {
+      return ScheduleService.getAll() || [];
+    } catch (e) {
+      return [];
+    }
+  }, [buses]);
+
   const busesForStop = useMemo(() => {
     if (!selectedStop) return [];
     const routeIds = ROUTES.filter((r) =>
@@ -120,18 +140,27 @@ export default function MapPage({
     return buses
       .filter((b) => routeIds.includes(b.route))
       .map((b) => {
+        const sch = allSchedules.find((s) => s.busId === b.id);
         const etaData = calculateBusEtaToStop(b, selectedStop);
         return {
           ...b,
+          schedule: sch || null,
+          shiftName: sch?.shiftName || b.shiftName || 'ช่วงการเดินรถ',
+          shiftTime: sch ? `${sch.startTime} - ${sch.endTime} น.` : '',
           etaMinutes: etaData.etaMinutes,
           remainingStops: etaData.remainingStops,
-          etaLabel: etaData.label
+          etaLabel: etaData.label,
+          isNotServing: etaData.isNotServing
         };
       })
-      .sort((a, b) => a.etaMinutes - b.etaMinutes);
-  }, [buses, selectedStop]);
+      .sort((a, b) => {
+        if (a.isNotServing && !b.isNotServing) return 1;
+        if (!a.isNotServing && b.isNotServing) return -1;
+        return a.etaMinutes - b.etaMinutes;
+      });
+  }, [buses, selectedStop, allSchedules]);
 
-  const nextArrivingBus = busesForStop[0] || null;
+  const nextArrivingBus = busesForStop.find((b) => !b.isNotServing) || null;
 
   const floatingNextBus = useMemo(() => {
     if (!userWaitingStop) return null;
@@ -233,10 +262,14 @@ export default function MapPage({
     // 1. Buses
     buses.forEach((b) => {
       if (b.id.toLowerCase().includes(q) || `สาย ${b.route}`.includes(q)) {
+        const sch = allSchedules.find((s) => s.busId === b.id);
+        const isNotServing = b.status === 'ยังไม่ถึงเวลางาน' || b.status === 'เสร็จสิ้นรอบวิ่ง' || b.status === 'ซ่อมบำรุง';
         results.push({
           type: 'bus',
           title: `รถมันม่วง ${b.id}`,
-          subtitle: `สาย ${b.route} •  ${b.passengers || 0}/20 คน`,
+          subtitle: isNotServing
+            ? `สาย ${b.route} • ${b.status} (${sch?.shiftName || b.shiftName || 'ตามตาราง'})`
+            : `สาย ${b.route} • ${b.passengers || 0}/20 คน • ${b.status}`,
           data: b
         });
       }
@@ -661,8 +694,11 @@ export default function MapPage({
 
           {/* Upcoming Buses Section */}
           <div className="stopBusesSection">
-            <div className="stopBusesSectionHead">
-              <h4>รถมันม่วงที่กำลังจะมาถึง</h4>
+            <div className="stopBusesSectionHead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <h4 style={{ margin: 0 }}>รถมันม่วงที่กำลังจะมาถึง</h4>
+              <span style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 600 }}>
+                {busesForStop.filter((b) => !b.isNotServing).length} คันกำลังให้บริการ
+              </span>
             </div>
 
             <div className="upcomingBusesList">
@@ -679,11 +715,12 @@ export default function MapPage({
                       key={b.id}
                       className={`upcomingBusCard ${isWaitingForThisBus ? 'activePinnedBus' : ''}`}
                       onClick={() => setSelectedBus(b)}
-                      title="คลิกเพื่อระบุตำแหน่งรถบนแผนที่"
+                      title={b.isNotServing ? `รถ ${b.id}: ${b.status} (${b.shiftName})` : "คลิกเพื่อระบุตำแหน่งรถบนแผนที่"}
+                      style={{ opacity: b.isNotServing ? 0.78 : 1 }}
                     >
                       <div
                         className="busRouteBadge"
-                        style={{ background: ROUTES.find((r) => r.id === b.route)?.color }}
+                        style={{ background: ROUTES.find((r) => r.id === b.route)?.color, opacity: b.isNotServing ? 0.65 : 1 }}
                       >
                         <Bus size={16} />
                         <span>สาย {b.route}</span>
@@ -694,15 +731,33 @@ export default function MapPage({
                           {isWaitingForThisBus && (
                             <span className="pinnedBusBadge">คุณรอคันนี้</span>
                           )}
+                          {b.isNotServing && (
+                            <span className="tag info" style={{ fontSize: '10px', padding: '2px 6px', lineHeight: 1.2 }}>
+                              {b.status}
+                            </span>
+                          )}
                         </div>
                         <small>คนขับ: {b.driverName || 'พนักงานขับรถ'}</small>
                       </div>
                       <div className="upcomingEta">
-                        <b>{b.etaLabel}</b>
-                        <span>ว่าง {Math.max(0, 20 - (b.passengers || 0))} ที่นั่ง</span>
+                        {b.isNotServing ? (
+                          <>
+                            <b style={{ color: 'var(--muted)', fontSize: '12.5px' }}>{b.shiftName}</b>
+                            <span style={{ fontSize: '11px', color: 'var(--muted)' }}>{b.shiftTime || 'รอบถัดไป'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <b>{b.etaLabel}</b>
+                            <span>ว่าง {Math.max(0, 20 - (b.passengers || 0))} ที่นั่ง</span>
+                          </>
+                        )}
                       </div>
                       <div className="busActionCol" onClick={(e) => e.stopPropagation()}>
-                        {isWaitingForThisBus ? (
+                        {b.isNotServing ? (
+                          <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 700, padding: '5px 8px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
+                            ยังไม่ถึงรอบวิ่ง
+                          </span>
+                        ) : isWaitingForThisBus ? (
                           <button
                             type="button"
                             className="pinBusDirectBtn active"

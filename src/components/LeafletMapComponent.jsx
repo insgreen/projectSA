@@ -142,8 +142,9 @@ export default function LeafletMapComponent({
         pos = route.polyline[idx];
       }
 
-      const percent = Math.min(100, Math.round(((bus.passengers || 0) / 20) * 100));
-      const barColor = percent >= 90 ? '#ef4444' : percent >= 60 ? '#fbbf24' : '#4ade80';
+      const isNotServing = bus.status === 'ยังไม่ถึงเวลางาน' || bus.status === 'เสร็จสิ้นรอบวิ่ง' || bus.status === 'ซ่อมบำรุง';
+      const percent = isNotServing ? 0 : Math.min(100, Math.round(((bus.passengers || 0) / 20) * 100));
+      const barColor = isNotServing ? '#94a3b8' : percent >= 90 ? '#ef4444' : percent >= 60 ? '#fbbf24' : '#4ade80';
 
       const busIcon = leafletObj.divIcon({
         className: 'customBusIconMarker',
@@ -151,6 +152,7 @@ export default function LeafletMapComponent({
           <div style="
             position: relative;
             background: ${route ? route.color : '#5C068C'};
+            opacity: ${isNotServing ? '0.78' : '1'};
             color: white;
             padding: 3px 6px 4px;
             border-radius: 10px;
@@ -158,26 +160,28 @@ export default function LeafletMapComponent({
             font-weight: 800;
             white-space: nowrap;
             box-shadow: 0 3px 10px rgba(0,0,0,0.3);
-            border: 1.5px solid white;
+            border: ${isNotServing ? '1.5px dashed rgba(255,255,255,0.85)' : '1.5px solid white'};
             display: flex;
             flex-direction: column;
             gap: 2px;
             cursor: pointer;
-            min-width: 72px;
+            min-width: 76px;
             transition: transform 0.25s ease;
             ${isSelected ? 'transform: scale(1.2); z-index: 999; box-shadow: 0 0 0 4px rgba(92,6,140,0.35);' : ''}
           ">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; line-height: 1;">
               <span style="font-size: 10px;">${bus.id}</span>
-              <span style="font-size: 9px; opacity: 0.9; font-weight: 700;">${Math.min(20, bus.passengers || 0)}/20</span>
+              <span style="font-size: 8.5px; opacity: 0.95; font-weight: 700;">
+                ${isNotServing ? bus.status : `${Math.min(20, bus.passengers || 0)}/20`}
+              </span>
             </div>
             <div style="width: 100%; height: 3px; background: rgba(0, 0, 0, 0.3); border-radius: 99px; overflow: hidden;">
-              <div style="width: ${percent}%; height: 100%; background: ${barColor}; border-radius: 99px;"></div>
+              <div style="width: ${isNotServing ? 0 : percent}%; height: 100%; background: ${barColor}; border-radius: 99px;"></div>
             </div>
           </div>
         `,
-        iconSize: [78, 26],
-        iconAnchor: [39, 13]
+        iconSize: [80, 26],
+        iconAnchor: [40, 13]
       });
 
       const busMarker = leafletObj.marker([pos.lat, pos.lng], { icon: busIcon }).addTo(layerGroup);

@@ -281,15 +281,15 @@ export const INITIAL_BUSES = [
     id: 'WU-102',
     route: 1,
     progressIndex: 7,
-    speed: 28,
-    eta: 6,
-    passengers: 20,
-    seated: 20,
+    speed: 0,
+    eta: 0,
+    passengers: 0,
+    seated: 0,
     standing: 0,
-    status: 'ที่นั่งเต็ม',
-    late: 2,
+    status: 'ยังไม่ถึงเวลางาน',
+    late: 0,
     driverName: 'อนันต์ สุขใจ',
-    seats: ['occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied','occupied']
+    seats: Array(20).fill('free')
   },
   {
     id: 'WU-103',
@@ -351,15 +351,15 @@ export const INITIAL_BUSES = [
     id: 'WU-302',
     route: 3,
     progressIndex: 20,
-    speed: 30,
-    eta: 4,
-    passengers: 16,
-    seated: 16,
+    speed: 0,
+    eta: 0,
+    passengers: 0,
+    seated: 0,
     standing: 0,
-    status: 'กำลังให้บริการ',
+    status: 'ยังไม่ถึงเวลางาน',
     late: 0,
     driverName: 'อำนาจ พรชัย',
-    seats: ['occupied','occupied','occupied','free','occupied','occupied','free','occupied','occupied','free','occupied','occupied','occupied','free','occupied','occupied','free','occupied','occupied','occupied']
+    seats: Array(20).fill('free')
   },
   {
     id: 'WU-303',
@@ -448,7 +448,7 @@ export const INITIAL_REPORTS = [
     id: 'REP-105',
     busId: 'WU-301',
     driverId: '600301',
-    driverName: 'อำนาจ ชูเชิด',
+    driverName: 'ประเสริฐ เจริญดี',
     userId: '68108596',
     category: 'ออกรถก่อนเวลา',
     location: 'จุดจอดโลตัสท่าศาลา',
@@ -609,7 +609,7 @@ export const INITIAL_SCHEDULES = [
     driverName: 'สมชาย ดีเยี่ยม',
     busId: 'WU-101',
     route: 1,
-    shiftName: 'กะเช้า (Morning Rush)',
+    shiftName: 'ช่วงเช้า',
     startTime: '07:00',
     endTime: '12:00',
     frequency: 'ทุก 8 นาที',
@@ -622,12 +622,12 @@ export const INITIAL_SCHEDULES = [
     driverName: 'อนันต์ สุขใจ',
     busId: 'WU-102',
     route: 1,
-    shiftName: 'กะบ่าย (Afternoon Shift)',
+    shiftName: 'ช่วงบ่าย',
     startTime: '12:00',
     endTime: '17:00',
     frequency: 'ทุก 10 นาที',
-    status: 'เตรียมเข้ากะ',
-    notes: 'เสริมรอบหอพัก Residence ช่วงเลิกเรียน'
+    status: 'ยังไม่ถึงเวลางาน',
+    notes: 'เสริมรอบหอพักช่วงเลิกเรียน'
   },
   {
     id: 'SCH-03',
@@ -635,7 +635,7 @@ export const INITIAL_SCHEDULES = [
     driverName: 'วิชัย มั่นคง',
     busId: 'WU-201',
     route: 2,
-    shiftName: 'กะเช้า-บ่าย (Day Shift)',
+    shiftName: 'ช่วงเช้า - บ่าย',
     startTime: '07:30',
     endTime: '15:30',
     frequency: 'ทุก 12 นาที',
@@ -645,10 +645,10 @@ export const INITIAL_SCHEDULES = [
   {
     id: 'SCH-04',
     driverId: '600301',
-    driverName: 'อำนาจ ชูเชิด',
+    driverName: 'ประเสริฐ เจริญดี',
     busId: 'WU-301',
     route: 3,
-    shiftName: 'กะเช้า (Medical Shuttle)',
+    shiftName: 'ช่วงเช้า',
     startTime: '07:00',
     endTime: '13:00',
     frequency: 'ทุก 15 นาที',
@@ -658,15 +658,54 @@ export const INITIAL_SCHEDULES = [
   {
     id: 'SCH-05',
     driverId: '600302',
-    driverName: 'บุญส่ง แก้วมณี',
+    driverName: 'อำนาจ พรชัย',
     busId: 'WU-302',
     route: 3,
-    shiftName: 'กะค่ำ (Evening Express)',
+    shiftName: 'ช่วงค่ำ',
     startTime: '16:00',
     endTime: '21:00',
     frequency: 'ทุก 10 นาที',
-    status: 'เตรียมเข้ากะ',
+    status: 'ยังไม่ถึงเวลางาน',
     notes: 'รอบบริการรับ-ส่งนักศึกษาและบุคลากรกลับหอพัก'
+  },
+  {
+    id: 'SCH-06',
+    driverId: '600103',
+    driverName: 'สุชาติ ใจดี',
+    busId: 'WU-103',
+    route: 1,
+    shiftName: 'ช่วงเช้า - บ่าย',
+    startTime: '08:00',
+    endTime: '16:00',
+    frequency: 'ทุก 10 นาที',
+    status: 'กำลังปฏิบัติหน้าที่',
+    notes: 'วิ่งวนรอบมหาวิทยาลัยเชื่อมต่อทุกอาคารเรียน'
+  },
+  {
+    id: 'SCH-07',
+    driverId: '600104',
+    driverName: 'ณรงค์ มีสุข',
+    busId: 'WU-104',
+    route: 1,
+    shiftName: 'ช่วงบ่าย - ค่ำ',
+    startTime: '13:00',
+    endTime: '20:30',
+    frequency: 'ทุก 12 นาที',
+    status: 'กำลังปฏิบัติหน้าที่',
+    notes: 'เสริมรอบหอพักและอาคารกิจกรรมนักศึกษาช่วงเย็น'
+  },
+  {
+    id: 'SCH-08',
+    driverId: '600303',
+    driverName: 'เกรียงไกร สุขสันต์',
+    busId: 'WU-303',
+    route: 3,
+    shiftName: 'ช่วงเต็มวัน',
+    startTime: '07:30',
+    endTime: '16:30',
+    frequency: 'ทุก 15 นาที',
+    status: 'กำลังปฏิบัติหน้าที่',
+    notes: 'สายศูนย์การแพทย์ มวล. - โลตัสท่าศาลา'
   }
 ];
 
@@ -740,10 +779,11 @@ export const MOCK_DRIVERS = [
   { id: '600101', password: '123456', name: 'สมชาย ดีเยี่ยม', busId: 'WU-101', route: 1, phone: '081-234-5678', experienceYears: 8, score: 94, status: 'กำลังให้บริการ' },
   { id: '600102', password: '123456', name: 'อนันต์ สุขใจ', busId: 'WU-102', route: 1, phone: '089-876-5432', experienceYears: 12, score: 95, status: 'กำลังให้บริการ' },
   { id: '600103', password: '123456', name: 'สุชาติ ใจดี', busId: 'WU-103', route: 1, phone: '086-555-1234', experienceYears: 6, score: 100, status: 'กำลังให้บริการ' },
+  { id: '600104', password: '123456', name: 'ณรงค์ มีสุข', busId: 'WU-104', route: 1, phone: '087-111-2233', experienceYears: 9, score: 100, status: 'กำลังให้บริการ' },
   { id: '600201', password: '123456', name: 'วิชัย มั่นคง', busId: 'WU-201', route: 2, phone: '082-333-4455', experienceYears: 10, score: 96, status: 'กำลังให้บริการ' },
-  { id: '600202', password: '123456', name: 'ประเสริฐ ยิ้มแย้ม', busId: 'WU-202', route: 2, phone: '084-666-7788', experienceYears: 5, score: 100, status: 'กำลังให้บริการ' },
-  { id: '600301', password: '123456', name: 'อำนาจ ชูเชิด', busId: 'WU-301', route: 3, phone: '088-999-0011', experienceYears: 14, score: 98, status: 'กำลังให้บริการ' },
-  { id: '600302', password: '123456', name: 'บุญส่ง แก้วมณี', busId: 'WU-302', route: 3, phone: '083-444-2211', experienceYears: 7, score: 100, status: 'พักกะการทำงาน' }
+  { id: '600301', password: '123456', name: 'ประเสริฐ เจริญดี', busId: 'WU-301', route: 3, phone: '084-666-7788', experienceYears: 5, score: 98, status: 'กำลังให้บริการ' },
+  { id: '600302', password: '123456', name: 'อำนาจ พรชัย', busId: 'WU-302', route: 3, phone: '088-999-0011', experienceYears: 14, score: 100, status: 'กำลังให้บริการ' },
+  { id: '600303', password: '123456', name: 'เกรียงไกร สุขสันต์', busId: 'WU-303', route: 3, phone: '083-444-2211', experienceYears: 7, score: 100, status: 'กำลังให้บริการ' }
 ];
 
 // Password Storage Persistence Helpers

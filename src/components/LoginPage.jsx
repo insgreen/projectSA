@@ -13,6 +13,8 @@ import {
   setStoredPassword
 } from '../data/routesData';
 import { UserService, DriverService } from '../data/dataStore';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export default function LoginPage({ role: propRole, setRole: propSetRole, onLogin, dark, setDark }) {
   // Main Role: 'user' | 'driver' | 'admin'
@@ -35,6 +37,7 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
   const [resetConfirmPw, setResetConfirmPw] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   // Lockout Countdown Timer
   React.useEffect(() => {
@@ -135,61 +138,117 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
     setError('');
   };
 
-  const handleDirectAdminLogin = () => {
-    const admin = MOCK_ADMINS[0];
-    const loginTimeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
-    const loginDateStr = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
-    setSuccessToast('เข้าสู่ระบบในฐานะผู้ดูแลระบบ (Admin) สำเร็จ...');
-    setTimeout(() => {
-      onLogin('admin', {
-        userId: admin.id,
-        userName: admin.name,
-        userDept: admin.department,
-        userStatus: admin.status,
-        roleLabel: admin.roleLabel,
-        role: 'admin',
-        loginTime: loginTimeStr,
-        loginDate: loginDateStr
-      });
-    }, 300);
-  };
-
-  const handleResetSubmit = (e) => {
+  const handleResetSubmit = async (e) => {
     e.preventDefault();
     setResetError('');
     setResetSuccess('');
 
-    if (!resetId.trim()) {
+    const trimmedId = resetId.trim();
+    const trimmedPw = resetNewPw.trim();
+
+    if (!trimmedId) {
       setResetError('กรุณากรอกรหัสประจำตัว / ชื่อผู้ใช้');
       return;
     }
 
-    if (resetNewPw.length < 4) {
+    if (trimmedPw.length < 4) {
       setResetError('รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 4 ตัวอักษร');
       return;
     }
 
-    if (resetNewPw !== resetConfirmPw) {
+    if (trimmedPw !== resetConfirmPw.trim()) {
       setResetError('รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน');
       return;
     }
 
-    setStoredPassword(resetId.trim(), resetNewPw.trim());
-    // Sync updated password to Firestore
-    UserService.update(resetId.trim(), { password: resetNewPw.trim() });
-    DriverService.update(resetId.trim(), { password: resetNewPw.trim() });
+    setIsResetting(true);
+    try {
+      let targetName = '';
+      let isSyncedToFirebase = false;
 
-    setResetSuccess('เปลี่ยนรหัสผ่านใหม่เรียบร้อยแล้ว (ซิงก์ Firebase สำเร็จ)');
-    setTimeout(() => {
-      setResetSuccess('');
-      setShowResetModal(false);
-      setResetId('');
-      setResetNewPw('');
-      setResetConfirmPw('');
-    }, 2000);
+      if (db) {
+        // 1. Try finding in 'users' collection
+        const userRef = doc(db, 'users', trimmedId);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          targetName = userSnap.data().name || trimmedId;
+          await setDoc(userRef, {
+            password: trimmedPw,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+          isSyncedToFirebase = true;
+        } else {
+          // 2. Try finding in 'drivers' collection
+          const driverRef = doc(db, 'drivers', trimmedId);
+          const driverSnap = await getDoc(driverRef);
+
+          if (driverSnap.exists()) {
+            targetName = driverSnap.data().name || trimmedId;
+            await setDoc(driverRef, {
+              password: trimmedPw,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+            isSyncedToFirebase = true;
+          } else if (trimmedId.toLowerCase() === 'admin' || trimmedId.toLowerCase() === 'admin-01') {
+            targetName = 'ผู้ดูแลระบบ';
+            await setDoc(userRef, {
+              id: trimmedId,
+              name: 'ผู้ดูแลระบบ',
+              userType: 'admin',
+              roleLabel: 'ผู้ดูแลระบบ (Admin)',
+              password: trimmedPw,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+            isSyncedToFirebase = true;
+          } else {
+            await setDoc(userRef, {
+              id: trimmedId,
+              password: trimmedPw,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+            isSyncedToFirebase = true;
+          }
+        }
+      }
+
+      // Also sync locally
+      setStoredPassword(trimmedId, trimmedPw);
+      await UserService.update(trimmedId, { password: trimmedPw });
+      await DriverService.update(trimmedId, { password: trimmedPw });
+
+      if (isSyncedToFirebase) {
+        setResetSuccess(`เปลี่ยนรหัสผ่านใหม่และซิงก์ Firebase Firestore สำเร็จเรียบร้อยแล้ว${targetName ? ` (${targetName})` : ''}`);
+      } else {
+        setResetSuccess('เปลี่ยนรหัสผ่านใหม่เรียบร้อยแล้ว');
+      }
+
+      setTimeout(() => {
+        setResetSuccess('');
+        setShowResetModal(false);
+        setResetId('');
+        setResetNewPw('');
+        setResetConfirmPw('');
+      }, 2000);
+    } catch (err) {
+      console.warn('Firebase reset password error, falling back locally:', err);
+      setStoredPassword(trimmedId, trimmedPw);
+      UserService.update(trimmedId, { password: trimmedPw });
+      DriverService.update(trimmedId, { password: trimmedPw });
+      setResetSuccess('เปลี่ยนรหัสผ่านใหม่เรียบร้อยแล้ว');
+      setTimeout(() => {
+        setResetSuccess('');
+        setShowResetModal(false);
+        setResetId('');
+        setResetNewPw('');
+        setResetConfirmPw('');
+      }, 2000);
+    } finally {
+      setIsResetting(false);
+    }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessToast('');
@@ -215,11 +274,20 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
     // ======================================================================
     const isAdminIntent = mainRole === 'admin' || lowerId === 'admin' || lowerId === 'admin-01' || lowerId.includes('admin');
     if (isAdminIntent) {
+      let fbAdminPw = null;
+      if (db) {
+        try {
+          const aDoc = await getDoc(doc(db, 'users', 'admin'));
+          if (aDoc.exists() && aDoc.data().password) {
+            fbAdminPw = aDoc.data().password;
+          }
+        } catch (e) {}
+      }
       const foundAdmin = MOCK_ADMINS.find(
         (a) => a.id.toLowerCase() === lowerId
       ) || MOCK_ADMINS[0];
 
-      const activeAdminPw = getStoredPassword(foundAdmin.id, foundAdmin.password || 'admin');
+      const activeAdminPw = fbAdminPw || getStoredPassword(foundAdmin.id, foundAdmin.password || 'admin');
 
       // ยืดหยุ่นรหัสผ่าน Admin: รองรับรหัสผ่านที่ตั้งไว้, admin, 123456, 1234
       const isPwCorrect =
@@ -267,9 +335,18 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
     // 2. DRIVER AUTHENTICATION (คนขับรถ)
     // ======================================================================
     if (mainRole === 'driver') {
+      let fbDriver = null;
+      if (db) {
+        try {
+          const dDoc = await getDoc(doc(db, 'drivers', trimmedId));
+          if (dDoc.exists()) {
+            fbDriver = dDoc.data();
+          }
+        } catch (e) {}
+      }
       const allDrivers = DriverService.getAll();
-      const foundDriver = allDrivers.find((d) => String(d.id) === id.trim()) || MOCK_DRIVERS.find((d) => d.id === id.trim());
-      const activeDriverPw = getStoredPassword(id.trim(), foundDriver?.password || '123456');
+      const foundDriver = fbDriver || allDrivers.find((d) => String(d.id) === trimmedId) || MOCK_DRIVERS.find((d) => d.id === trimmedId);
+      const activeDriverPw = fbDriver?.password || getStoredPassword(trimmedId, foundDriver?.password || '123456');
 
       if (!foundDriver || pw.trim() !== activeDriverPw) {
         const nextFailed = failedAttempts + 1;
@@ -308,17 +385,26 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
     // ======================================================================
     // 3. USER AUTHENTICATION (นักศึกษา, บุคลากร, บุคคลภายนอก)
     // ======================================================================
+    let fbUser = null;
+    if (db) {
+      try {
+        const uDoc = await getDoc(doc(db, 'users', trimmedId));
+        if (uDoc.exists()) {
+          fbUser = uDoc.data();
+        }
+      } catch (e) {}
+    }
     const allUsers = UserService.getAll();
-    let foundUser = allUsers.find((u) => String(u.id) === id.trim());
+    let foundUser = fbUser || allUsers.find((u) => String(u.id) === trimmedId);
     if (!foundUser) {
       if (userCategory === 'student') {
-        foundUser = MOCK_STUDENTS.find((s) => s.id === id.trim());
+        foundUser = MOCK_STUDENTS.find((s) => s.id === trimmedId);
       } else {
-        foundUser = MOCK_STAFF.find((s) => s.id === id.trim());
+        foundUser = MOCK_STAFF.find((s) => s.id === trimmedId);
       }
     }
 
-    const activeUserPw = getStoredPassword(id.trim(), foundUser?.password || '123456');
+    const activeUserPw = fbUser?.password || getStoredPassword(trimmedId, foundUser?.password || '123456');
 
     if (!foundUser || pw.trim() !== activeUserPw) {
       const nextFailed = failedAttempts + 1;
@@ -385,7 +471,7 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
               onClick={() => handleMainRoleChange('user')}
             >
               <Users size={15} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-              ผู้ใช้บริการ
+              ผู้โดยสาร
             </button>
             <button
               type="button"
@@ -477,25 +563,6 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
               >
                 กรอกอัตโนมัติ
               </button>
-              {mainRole === 'admin' && (
-                <button
-                  type="button"
-                  onClick={handleDirectAdminLogin}
-                  style={{
-                    background: 'var(--danger)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '4px 10px',
-                    color: '#fff',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    boxShadow: '0 2px 6px rgba(239, 68, 68, 0.25)'
-                  }}
-                >
-                  เข้าสู่ระบบทันที
-                </button>
-              )}
             </div>
           </div>
 
@@ -585,16 +652,43 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
 
       {/* RESET PASSWORD MODAL */}
       {showResetModal && (
-        <div className="modalOverlay" onClick={() => setShowResetModal(false)}>
-          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px', width: '90%' }}>
-            <div className="modalHeader" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div className="modalOverlay" onClick={() => !isResetting && setShowResetModal(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px', width: '92%' }}>
+            <div className="modalHeader" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Lock size={20} color="var(--wu-purple-light)" />
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>เปลี่ยนรหัสผ่าน / ตั้งรหัสผ่านใหม่</h3>
               </div>
-              <button onClick={() => setShowResetModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setShowResetModal(false)}
+                style={{ background: 'none', border: 'none', cursor: isResetting ? 'not-allowed' : 'pointer', color: 'var(--muted)' }}
+              >
                 <X size={20} />
               </button>
+            </div>
+
+            {/* Firebase Live Connection Badge */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'rgba(16, 185, 129, 0.08)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              borderRadius: '10px',
+              padding: '8px 12px',
+              marginBottom: '14px',
+              fontSize: '12px',
+              color: 'var(--text)'
+            }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700, color: 'var(--success)' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)', display: 'inline-block' }}></span>
+                เชื่อมต่อระบบฐานข้อมูล Firebase Firestore
+              </span>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600 }}>
+                Real-time Sync
+              </span>
             </div>
 
             {resetError && (
@@ -616,6 +710,7 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
                   value={resetId}
                   onChange={(e) => setResetId(e.target.value)}
                   placeholder="กรอกรหัสประจำตัวของคุณ..."
+                  disabled={isResetting}
                   required
                   style={{ width: '100%', padding: '10px 14px', borderRadius: '12px', border: '1.5px solid var(--border)', outline: 'none', background: 'var(--card)', color: 'var(--text)' }}
                 />
@@ -628,6 +723,7 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
                   value={resetNewPw}
                   onChange={(e) => setResetNewPw(e.target.value)}
                   placeholder="อย่างน้อย 4 ตัวอักษร..."
+                  disabled={isResetting}
                   required
                   style={{ width: '100%', padding: '10px 14px', borderRadius: '12px', border: '1.5px solid var(--border)', outline: 'none', background: 'var(--card)', color: 'var(--text)' }}
                 />
@@ -640,6 +736,7 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
                   value={resetConfirmPw}
                   onChange={(e) => setResetConfirmPw(e.target.value)}
                   placeholder="กรอกรหัสผ่านใหม่อีกครั้ง..."
+                  disabled={isResetting}
                   required
                   style={{ width: '100%', padding: '10px 14px', borderRadius: '12px', border: '1.5px solid var(--border)', outline: 'none', background: 'var(--card)', color: 'var(--text)' }}
                 />
@@ -648,16 +745,18 @@ export default function LoginPage({ role: propRole, setRole: propSetRole, onLogi
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
                 <button
                   type="button"
+                  disabled={isResetting}
                   onClick={() => setShowResetModal(false)}
-                  style={{ flex: 1, padding: '11px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontWeight: 700, cursor: 'pointer' }}
+                  style={{ flex: 1, padding: '11px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontWeight: 700, cursor: isResetting ? 'not-allowed' : 'pointer' }}
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  style={{ flex: 1, padding: '11px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, var(--wu-purple-light), var(--wu-purple))', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+                  disabled={isResetting}
+                  style={{ flex: 1, padding: '11px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, var(--wu-purple-light), var(--wu-purple))', color: '#fff', fontWeight: 700, cursor: isResetting ? 'not-allowed' : 'pointer', opacity: isResetting ? 0.75 : 1 }}
                 >
-                  บันทึกรหัสผ่านใหม่
+                  {isResetting ? 'กำลังบันทึกลง Firebase...' : 'บันทึกรหัสผ่านใหม่'}
                 </button>
               </div>
             </form>

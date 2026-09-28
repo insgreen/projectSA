@@ -29,17 +29,17 @@ import {
 } from 'firebase/firestore';
 
 const STORAGE_KEYS = {
-  USERS: 'wu_bus_users_v2',
-  DRIVERS: 'wu_bus_drivers_v2',
-  BUSES: 'wu_bus_buses_v2',
-  ROUTES: 'wu_bus_routes_v2',
-  REPORTS: 'wu_bus_reports_v2',
-  ANNOUNCEMENTS: 'wu_bus_announcements_v2',
-  CHATBOT: 'wu_bus_chatbot_v2',
+  USERS: 'wu_bus_users_v3',
+  DRIVERS: 'wu_bus_drivers_v3',
+  BUSES: 'wu_bus_buses_v5',
+  ROUTES: 'wu_bus_routes_v3',
+  REPORTS: 'wu_bus_reports_v3',
+  ANNOUNCEMENTS: 'wu_bus_announcements_v3',
+  CHATBOT: 'wu_bus_chatbot_v3',
   WAITING: 'wu_bus_waiting_stops_v1',
-  SENSORS: 'wu_bus_sensors_v2',
-  SCHEDULES: 'wu_bus_schedules_v2',
-  TELEMETRY: 'wu_bus_telemetry_v2'
+  SENSORS: 'wu_bus_sensors_v3',
+  SCHEDULES: 'wu_bus_schedules_v5',
+  TELEMETRY: 'wu_bus_telemetry_v3'
 };
 
 export const INITIAL_CHATBOT_FAQ = [
@@ -280,6 +280,14 @@ export const DriverService = {
         console.warn('Firestore setDoc driver error:', e);
       }
     }
+    if (driver.busId && driver.name) {
+      try {
+        await BusService.update(driver.busId, {
+          driverName: driver.name,
+          driverId: String(driver.id)
+        });
+      } catch (e) {}
+    }
     return { success: true, data: driver };
   },
 
@@ -298,6 +306,32 @@ export const DriverService = {
         console.warn('Firestore setDoc driver error:', e);
       }
     }
+
+    // Sync driver name & id to BusService and ScheduleService
+    try {
+      const targetBusId = updates.busId || list[idx].busId;
+      const targetDriverName = updates.name || list[idx].name;
+      if (targetBusId && targetDriverName) {
+        await BusService.update(targetBusId, {
+          driverName: targetDriverName,
+          driverId: String(id)
+        });
+      }
+      if (typeof ScheduleService !== 'undefined' && targetDriverName) {
+        const schList = ScheduleService.getAll();
+        for (const sch of schList) {
+          if (String(sch.driverId) === String(id) || (targetBusId && sch.busId === targetBusId)) {
+            await ScheduleService.update(sch.id, {
+              driverName: targetDriverName,
+              driverId: String(id)
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Sync driver updates to bus and schedule error:', e);
+    }
+
     return { success: true, data: list[idx] };
   },
 
@@ -331,16 +365,31 @@ export const DriverService = {
 export const BusService = {
   getAll: () => {
     const buses = loadStore(STORAGE_KEYS.BUSES, INITIAL_BUSES);
+    const schedules = loadStore(STORAGE_KEYS.SCHEDULES, INITIAL_SCHEDULES);
     return buses.map((b) => {
-      if (b.seats) {
-        return {
-          ...b,
-          seats: b.seats.length < 20
-            ? [...b.seats, ...Array(20 - b.seats.length).fill('free')]
-            : b.seats.slice(0, 20)
-        };
+      const sch = schedules.find((s) => s.busId === b.id);
+      let effectiveStatus = b.status;
+      if (b.status !== 'ซ่อมบำรุง') {
+        if (sch?.status === 'ยังไม่ถึงเวลางาน') {
+          effectiveStatus = 'ยังไม่ถึงเวลางาน';
+        } else if (sch?.status === 'เสร็จสิ้นงาน') {
+          effectiveStatus = 'เสร็จสิ้นรอบวิ่ง';
+        } else if (sch?.status === 'กำลังปฏิบัติหน้าที่' && (!b.status || b.status === 'ยังไม่ถึงเวลางาน' || b.status === 'เสร็จสิ้นรอบวิ่ง')) {
+          effectiveStatus = 'กำลังให้บริการ';
+        }
       }
-      return b;
+      return {
+        ...b,
+        status: effectiveStatus,
+        driverName: sch?.driverName || b.driverName,
+        route: sch?.route || b.route,
+        shiftName: sch?.shiftName || b.shiftName,
+        seats: b.seats
+          ? (b.seats.length < 20
+            ? [...b.seats, ...Array(20 - b.seats.length).fill('free')]
+            : b.seats.slice(0, 20))
+          : Array(20).fill('free')
+      };
     });
   },
 
@@ -1232,6 +1281,28 @@ export const ScheduleService = {
           list.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
           saveStore(STORAGE_KEYS.SCHEDULES, list);
           callback(list);
+
+          // Auto-sync bus statuses with schedules in local store and state
+          try {
+            const curBuses = BusService.getAll();
+            let changed = false;
+            list.forEach((sch) => {
+              const b = curBuses.find((bus) => bus.id === sch.busId);
+              if (b) {
+                const isServing = sch.status === 'กำลังปฏิบัติหน้าที่' || sch.status === 'กำลังให้บริการ';
+                const expectedStatus = isServing ? 'กำลังให้บริการ' : (sch.status === 'เสร็จสิ้นงาน' ? 'เสร็จสิ้นรอบวิ่ง' : 'ยังไม่ถึงเวลางาน');
+                if (b.status !== expectedStatus && b.status !== 'ซ่อมบำรุง') {
+                  b.status = expectedStatus;
+                  b.driverName = sch.driverName || b.driverName;
+                  b.route = Number(sch.route) || b.route;
+                  changed = true;
+                }
+              }
+            });
+            if (changed) {
+              saveStore(STORAGE_KEYS.BUSES, curBuses);
+            }
+          } catch (e) {}
         }
       }, (err) => {
         console.warn('Firestore schedules subscription error:', err);
@@ -1262,6 +1333,19 @@ export const ScheduleService = {
         console.warn('Firestore setDoc schedule error:', e);
       }
     }
+
+    // Auto-sync bus in Firestore and local store
+    if (schedule.busId) {
+      const isServing = schedule.status === 'กำลังปฏิบัติหน้าที่' || schedule.status === 'กำลังให้บริการ';
+      const expectedStatus = isServing ? 'กำลังให้บริการ' : (schedule.status === 'เสร็จสิ้นงาน' ? 'เสร็จสิ้นรอบวิ่ง' : 'ยังไม่ถึงเวลางาน');
+      await BusService.update(schedule.busId, {
+        status: expectedStatus,
+        driverName: schedule.driverName,
+        route: Number(schedule.route),
+        shiftName: schedule.shiftName
+      });
+    }
+
     return { success: true, data: schedule };
   },
 
@@ -1279,11 +1363,26 @@ export const ScheduleService = {
         console.warn('Firestore setDoc schedule error:', e);
       }
     }
+
+    // Auto-sync bus in Firestore and local store
+    const sch = list[idx];
+    if (sch.busId) {
+      const isServing = sch.status === 'กำลังปฏิบัติหน้าที่' || sch.status === 'กำลังให้บริการ';
+      const expectedStatus = isServing ? 'กำลังให้บริการ' : (sch.status === 'เสร็จสิ้นงาน' ? 'เสร็จสิ้นรอบวิ่ง' : 'ยังไม่ถึงเวลางาน');
+      await BusService.update(sch.busId, {
+        status: expectedStatus,
+        driverName: sch.driverName,
+        route: Number(sch.route),
+        shiftName: sch.shiftName
+      });
+    }
+
     return { success: true, data: list[idx] };
   },
 
   delete: async (id) => {
     const list = ScheduleService.getAll();
+    const target = list.find((s) => s.id === id);
     saveStore(STORAGE_KEYS.SCHEDULES, list.filter((s) => s.id !== id));
 
     if (db) {
@@ -1301,6 +1400,13 @@ export const ScheduleService = {
         console.warn('Firestore deleteDoc schedule error:', e);
       }
     }
+
+    if (target && target.busId) {
+      await BusService.update(target.busId, {
+        status: 'พร้อมให้บริการ'
+      });
+    }
+
     return { success: true };
   },
 
@@ -1498,10 +1604,10 @@ export const NotificationService = {
           sourceId: rep.id,
           type: 'complaint',
           categoryLabel: 'สิ่งที่ผู้ใช้ร้องเรียน',
-          title: `ข้อร้องเรียน: ${rep.category || 'ข้อร้องเรียนทั่วไป'} (${rep.busId ? `รถ ${rep.busId}` : 'ทั่วไป'})`,
+          title: `ข้อร้องเรียน: ${rep.category || 'ข้อร้องเรียนทั่วไป'} (${rep.busId ? rep.busId : 'ทั่วไป'})`,
           description: rep.details || 'ไม่มีรายละเอียดเพิ่มเติม',
           location: rep.location || 'มหาวิทยาลัยวลัยลักษณ์',
-          target: rep.busId ? `รถ ${rep.busId}` : (rep.driverName ? `พนักงาน ${rep.driverName}` : 'ระบบโดยสาร'),
+          target: rep.busId ? rep.busId : (rep.driverName ? `พนักงาน ${rep.driverName}` : 'ระบบโดยสาร'),
           busId: rep.busId,
           driverName: rep.driverName,
           status: rep.status || 'รอตรวจสอบ',
@@ -1535,7 +1641,7 @@ export const NotificationService = {
             title: `รถ ${b.id} ล่าช้ากว่ากำหนด ${b.late} นาที`,
             description: `รถสาย ${b.route} ประจำโดย ${b.driverName || 'พนักงานขับ'} มีเวลาล่าช้าสะสม ${b.late} นาที ส่งผลต่อรอบตารางเดินรถ`,
             location: `สาย ${b.route}`,
-            target: `รถ ${b.id}`,
+            target: b.id,
             busId: b.id,
             driverName: b.driverName,
             status: 'ล่าช้า',
@@ -1557,7 +1663,7 @@ export const NotificationService = {
             title: `รถ ${b.id} อยู่ในสถานะระงับวิ่ง / ส่งซ่อมบำรุง`,
             description: `ระบบตรวจพบข้อขัดข้องและนำรถเข้าตรวจสภาพตามรอบมาตรฐานความปลอดภัย`,
             location: 'ศูนย์ซ่อมบำรุงยานพาหนะ มวล.',
-            target: `รถ ${b.id}`,
+            target: b.id,
             busId: b.id,
             driverName: b.driverName,
             status: 'ซ่อมบำรุง',
@@ -1579,7 +1685,7 @@ export const NotificationService = {
             title: `ตรวจพบความเร็วเกินกำหนด: รถ ${b.id} (${b.speed} km/h)`,
             description: `เซนเซอร์ GPS รายงานความเร็วเกิน 30 km/h ในเขตควบคุมความเร็วภายในมหาวิทยาลัยวลัยลักษณ์`,
             location: `สาย ${b.route}`,
-            target: `รถ ${b.id}`,
+            target: b.id,
             busId: b.id,
             driverName: b.driverName,
             status: 'เตือนความเร็ว',
@@ -1601,7 +1707,7 @@ export const NotificationService = {
             title: `รถ ${b.id} ยังไม่ผ่านการตรวจสอบความพร้อมก่อนเดินรถ`,
             description: `พบรายการตรวจเช็กลมยางหรือระบบเบรกไม่ครบตามเกณฑ์มาตรฐาน Pre-trip Inspection`,
             location: 'จุดตรวจยานพาหนะ',
-            target: `รถ ${b.id}`,
+            target: b.id,
             busId: b.id,
             driverName: b.driverName,
             status: 'รอตรวจสภาพ',
@@ -1624,7 +1730,7 @@ export const NotificationService = {
             title: `เซนเซอร์ ${s.name} พบข้อขัดข้อง`,
             description: `อุปกรณ์ประจำ ${s.location} ส่งสัญญาณเตือน: ${s.status} (ค่าอ่าน: ${s.reading || 'ขาดการเชื่อมต่อ'})`,
             location: s.location || 'อุปกรณ์ IoT',
-            target: s.busId ? `รถ ${s.busId}` : s.id,
+            target: s.busId ? s.busId : s.id,
             busId: s.busId,
             status: s.status,
             urgent: true,
@@ -1645,7 +1751,7 @@ export const NotificationService = {
           title: 'รถ WU-301 รายงานความล่าช้าสะสม 7 นาที (สาย 3)',
           description: 'เนื่องจากมีผู้โดยสารขึ้น-ลงหนาแน่นบริเวณศูนย์การแพทย์และอาคารเรียนรวม ทำให้รอบวิ่งล่าช้ากว่ากำหนด',
           location: 'สาย 3 (ศูนย์การแพทย์)',
-          target: 'รถ WU-301',
+          target: 'WU-301',
           busId: 'WU-301',
           driverName: 'ประเสริฐ เจริญดี',
           status: 'ล่าช้า',
@@ -1662,7 +1768,7 @@ export const NotificationService = {
           title: 'กำหนดรอบตรวจเช็กความพร้อมระบบเบรกและยาง รถ WU-104',
           description: 'แจ้งเตือนรอบการบำรุงรักษาเชิงป้องกัน (Preventive Maintenance) ประจำสัปดาห์สำหรับรถสาย 1',
           location: 'ศูนย์ซ่อมบำรุง มวล.',
-          target: 'รถ WU-104',
+          target: 'WU-104',
           busId: 'WU-104',
           driverName: 'ณรงค์ มีสุข',
           status: 'แจ้งรอบตรวจ',

@@ -98,6 +98,7 @@ export default function SeatStatusPage({ buses, setActive, onGoBack, onSelectBus
         {filteredBuses.map((b) => {
           const isSelected = b.id === activeBus?.id;
           const r = ROUTES.find((item) => item.id === b.route);
+          const isInactive = b.status === 'ยังไม่ถึงเวลางาน' || b.status === 'เสร็จสิ้นรอบวิ่ง' || b.status === 'ซ่อมบำรุง';
           return (
             <button
               key={b.id}
@@ -111,15 +112,21 @@ export default function SeatStatusPage({ buses, setActive, onGoBack, onSelectBus
                 cursor: 'pointer',
                 textAlign: 'left',
                 boxShadow: isSelected ? '0 8px 24px rgba(0,0,0,0.08)' : 'none',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.2s ease',
+                opacity: isInactive ? 0.82 : 1
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                 <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: r?.color || '#999' }} />
                 <strong style={{ fontSize: '15px', color: 'var(--text)' }}>{b.id}</strong>
+                {isInactive && (
+                  <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(234, 88, 12, 0.1)', color: '#c2410c', fontWeight: 700 }}>
+                    {b.status}
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                ผู้โดยสาร {Math.min(20, b.passengers || 0)}/20 ที่นั่ง
+                {isInactive ? `${b.shiftName || 'ช่วงการเดินรถ'}` : `ผู้โดยสาร ${Math.min(20, b.passengers || 0)}/20 ที่นั่ง`}
               </div>
             </button>
           );
@@ -134,13 +141,32 @@ export default function SeatStatusPage({ buses, setActive, onGoBack, onSelectBus
             {/* Header */}
             <div className="seatCardHeader">
               <div>
-                <span style={{
-                  background: route?.color, color: '#fff',
-                  fontSize: '12px', fontWeight: 800, padding: '3px 12px', borderRadius: '99px',
-                  display: 'inline-block', marginBottom: '6px'
-                }}>
-                  สาย {activeBus.route}
-                </span>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap' }}>
+                  <span style={{
+                    background: route?.color, color: '#fff',
+                    fontSize: '12px', fontWeight: 800, padding: '3px 12px', borderRadius: '99px',
+                    display: 'inline-block'
+                  }}>
+                    สาย {activeBus.route}
+                  </span>
+                  {activeBus.shiftName && (
+                    <span style={{
+                      background: 'rgba(92, 6, 140, 0.12)', color: 'var(--wu-purple-light)',
+                      fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: '99px',
+                      display: 'inline-block', border: '1px solid rgba(92, 6, 140, 0.2)'
+                    }}>
+                      {activeBus.shiftName} {activeBus.shiftHours ? `(${activeBus.shiftHours})` : ''}
+                    </span>
+                  )}
+                  <span style={{
+                    fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: '99px',
+                    background: activeBus.status === 'กำลังให้บริการ' ? 'rgba(34, 164, 71, 0.12)' : 'rgba(234, 88, 12, 0.12)',
+                    color: activeBus.status === 'กำลังให้บริการ' ? 'var(--success)' : '#c2410c',
+                    border: `1px solid ${activeBus.status === 'กำลังให้บริการ' ? 'rgba(34, 164, 71, 0.3)' : 'rgba(234, 88, 12, 0.3)'}`
+                  }}>
+                    {activeBus.status || 'กำลังให้บริการ'}
+                  </span>
+                </div>
                 <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.3 }}>
                   รถมันม่วงป้ายทะเบียน {activeBus.id}
                 </h3>

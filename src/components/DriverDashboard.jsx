@@ -292,7 +292,20 @@ export default function DriverDashboard({
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  onClick={() => setIsInspectionModalOpen(true)}
+                  onClick={() => {
+                    const existing = myBus?.readiness?.checklist;
+                    if (existing) {
+                      setDriverInspectionChecklist({
+                        tires: existing.tires !== undefined ? existing.tires : true,
+                        brakes: existing.brakes !== undefined ? existing.brakes : true,
+                        lights: existing.lights !== undefined ? existing.lights : true,
+                        gps: existing.gps !== undefined ? existing.gps : true,
+                        seatSensors: existing.seatSensors !== undefined ? existing.seatSensors : true,
+                        doors: existing.doors !== undefined ? existing.doors : true
+                      });
+                    }
+                    setIsInspectionModalOpen(true);
+                  }}
                   className="secondaryBtn"
                   style={{
                     display: 'flex', alignItems: 'center', gap: '8px',
@@ -543,9 +556,9 @@ export default function DriverDashboard({
                       <small>ช่วงเวลาปฏิบัติงาน</small>
                       <b style={{ color: 'var(--wu-purple-light)' }}>{driverSchedule?.startTime || '07:00'} - {driverSchedule?.endTime || '12:00'} น.</b>
                     </div>
-                    <div className="driverShiftMiniCard" title={`กะปฏิบัติงาน: ${driverSchedule?.shiftName || 'กะเช้า (Morning Rush)'}`}>
-                      <small>กะปฏิบัติงาน</small>
-                      <b>{driverSchedule?.shiftName || 'กะเช้า (Morning Rush)'}</b>
+                    <div className="driverShiftMiniCard" title={`ช่วงการเดินรถ: ${driverSchedule?.shiftName || 'ช่วงเช้า'}`}>
+                      <small>ช่วงการเดินรถ</small>
+                      <b>{driverSchedule?.shiftName || 'ช่วงเช้า'}</b>
                     </div>
                   </div>
 
@@ -611,10 +624,7 @@ export default function DriverDashboard({
                                 <span style={{ background: '#fef2f2', color: '#ef4444', fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '99px', border: '1px solid #fecaca' }}>ใหม่</span>
                               )}
                             </div>
-                            <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text)', marginBottom: '4px' }}>
-                              {rep.location}
-                            </div>
-                            <p style={{ margin: 0, fontSize: '13px', color: 'var(--muted)', lineHeight: 1.5 }}>{rep.details}</p>
+                            <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--text)', lineHeight: 1.5, fontWeight: 500 }}>{rep.details}</p>
                             
                             <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#fef2f2', color: '#ef4444', padding: '3px 10px', borderRadius: '99px', fontSize: '12px', fontWeight: 800 }}>
@@ -628,16 +638,6 @@ export default function DriverDashboard({
                                 สถานะ: {rep.status || 'รอตรวจสอบ'}
                               </span>
                             </div>
-
-                            {rep.adminNote && (
-                              <div style={{
-                                marginTop: '8px', padding: '8px 12px', borderRadius: '10px',
-                                background: 'var(--bg)', border: '1px solid var(--border)', fontSize: '12px'
-                              }}>
-                                <strong style={{ color: 'var(--wu-purple-light)' }}>ข้อความจากผู้ดูแลระบบ (Admin): </strong>
-                                <span style={{ color: 'var(--text)' }}>{rep.adminNote}</span>
-                              </div>
-                            )}
                           </div>
                         </div>
                       ))}
@@ -658,7 +658,7 @@ export default function DriverDashboard({
           <div className="driverWorkspace">
             <BackButton onClick={handleGoBack} label="ย้อนกลับ" />
             <div className="pageIntro" style={{ marginBottom: '20px', marginTop: '4px' }}>
-              <h2>ตารางการขับรถของฉัน (My Shift Schedule)</h2>
+              <h2>ตารางการขับรถของฉัน</h2>
               <p style={{ marginTop: '4px', color: 'var(--muted)', fontSize: '14px', lineHeight: 1.5 }}>รอบเวลาและภารกิจการเดินรถที่ได้รับมอบหมาย ประจำรถ {myBus.id} สาย {myRoute}</p>
             </div>
 
@@ -699,7 +699,7 @@ export default function DriverDashboard({
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', background: 'var(--bg)', padding: '14px', borderRadius: '14px', border: '1px solid var(--border)' }}>
                       <div>
                         <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600 }}>ช่วงเวลาปฏิบัติหน้าที่</div>
-                        <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text)', marginTop: '2px' }}>
+                        <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text)', marginTop: '2px', whiteSpace: 'nowrap' }}>
                           <Clock size={16} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '4px', color: 'var(--wu-purple-light)' }} />
                           {sch.startTime} - {sch.endTime} น.
                         </div>
@@ -951,9 +951,16 @@ export default function DriverDashboard({
             </div>
 
             <form onSubmit={handleSaveDriverInspection} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <p style={{ margin: '0 0 2px', fontSize: '13px', color: 'var(--muted)', fontWeight: 600, textAlign: 'left' }}>
-                ตรวจสอบรายการความปลอดภัย
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                <p style={{ margin: '0 0 2px', fontSize: '13px', color: 'var(--muted)', fontWeight: 600, textAlign: 'left' }}>
+                  ตรวจสอบรายการความปลอดภัย
+                </p>
+                {myBus?.readiness?.isReady && (
+                  <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>
+                    ตรวจแล้วโดย: {myBus.readiness.inspector || 'พนักงานขับรถ'}
+                  </span>
+                )}
+              </div>
 
               <div style={{
                 display: 'flex',
